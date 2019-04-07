@@ -1,0 +1,720 @@
+﻿// daac.cpp : 此文件包含 "main" 函数。程序执行将在此处开始并结束。
+//
+
+#include <iostream>
+#include <stdint.h>
+#include <vector>
+#include <deque>
+#include <algorithm>
+#include <string>
+#include <string_view>
+#include <bitset>
+
+using sv_vector_t = std::vector<std::string_view>;
+
+#pragma pack(1)
+struct state_t {
+    uint8_t accpet;
+    uint8_t fail;       // ?
+};
+struct skSearch {
+    uint8_t flags;
+    uint8_t len;
+};
+
+using noidx_t = uint16_t;
+
+enum {
+    B_FINAL = 1,
+    B_CASE_SENSITIVE = 2,
+};
+struct node_t {
+    uint8_t  bits;
+    uint8_t  code;
+    uint8_t  len;
+    noidx_t  base;
+    noidx_t  fail;
+    noidx_t  zhit;
+    //noidx_t  parent;
+};
+
+enum {
+    AC_CASE_SENSITIVE = 1,
+};
+struct mini_ac_t {
+    uint16_t size;
+    uint16_t opts;
+    node_t root[0];
+    node_t* state_move(node_t* node, uint8_t ch) {
+        node_t* sub_first = node->base + root;
+        node_t* sub_last = sub_first + node->len;
+        for (; sub_first < sub_last; ++sub_first) {
+            if (ch == sub_first->code) return sub_first;
+        }
+        return NULL;
+    }
+};
+
+#pragma pack()
+
+class s1_ac_t {
+protected:
+    std::vector<state_t> states_;
+public:
+    s1_ac_t() {
+    }
+    size_t dump() {
+        return states_.size() * sizeof(state_t);
+    }
+    int build(const std::string_view& str) {
+        size_t sl = str.size();
+        if (sl > 0x100)
+            return -1;
+        states_.resize(sl);
+        states_[0] = {};
+
+        for (size_t i = 0; i < sl; ++i) {
+            uint8_t c = str[i];
+            states_[i].accpet = c;
+            states_[i].fail = 0;
+            if (i > 0) {
+                size_t ifail = states_[i - 1].fail;
+                size_t itarget = (states_[ifail].accpet == c) ? ifail + 1 : 0;
+                states_[i].fail = itarget;
+            }
+        }
+        return 0;
+    }
+    bool feed(size_t & state, uint8_t ch) {
+        size_t match = states_.size();
+        if (state >= match)
+            state = 0;
+        for (;;) {
+            if (states_[state].accpet == ch) {
+                state = state + 1;
+                if (state == match)
+                    return true;
+                break;
+            }
+            if (state) {
+                state = states_[state - 1].fail;
+                continue;
+            }
+            if (!state) break;
+        }
+        return false;
+    }
+    bool feed(size_t & state, const std::string_view & str) {
+        size_t match = states_.size();
+        if (state >= match)
+            state = 0;
+        for (uint8_t ch : str) {
+            for (;;) {
+                if (states_[state].accpet == ch) {
+                    state = state + 1;
+                    if (state == match)
+                        return true;
+                    break;
+                }
+                if (state) {
+                    state = states_[state - 1].fail;
+                    continue;
+                }
+                if (!state) break;
+            }
+        }
+        return false;
+    }
+};
+
+
+bool s1_sm_match(skSearch * ac, size_t & state, const uint8_t * data, size_t len) {
+    size_t match = ac->len;
+    if (state >= match)
+        state = 0;
+    const state_t * states_ = (const state_t*)(ac + 1);
+    const uint8_t * tail = data + len;
+    for (; data < tail; ++data) {
+        const uint8_t ch = *data;
+        for (;;) {
+            if (states_[state].accpet == ch) {
+                state = state + 1;
+                if (state == match)
+                    return true;
+                break;
+            }
+            if (state) {
+                state = states_[state - 1].fail;
+                continue;
+            }
+            if (!state)
+                break;
+        }
+    }
+    return false;
+}
+
+
+#include <bitset>
+
+class ByteCoder {
+    uint8_t code[0x100] = {};
+public:
+    void train(const sv_vector_t& strings) {
+        for (auto& str : strings) {
+            for (uint8_t ch : str) {
+                code[ch] |= 1;
+            }
+        }
+        uint8_t code = 0;
+        for (size_t i = 0; i < 0;);
+    }
+};
+
+enum {
+    AC_OPT_FAIL_SEARCH = 1
+};
+//
+//template < typename callback_t >
+//static bool ac_search(mini_ac_t& ac, uint32_t options, size_t& state, const std::string_view& text, callback_t&& on_hit) {
+//    const uint8_t* data = (const uint8_t*)text.data();
+//    size_t len = text.size();
+//    node_t* last = root_ + nodes_size_;
+//    if (state >= nodes_size_) state = 0;
+//    node_t * p = root_ + state;
+//    node_t * next = 0;
+//    auto tail = data + len;
+//    for (; data < tail; ++data) {
+//        auto ch = *data;
+//        while (p != root_) {
+//            next = ac.state_move(p, ch);
+//            if (!next) {
+//                p = p->fail + root_;
+//                continue;
+//            }
+//            p = next;
+//            break;
+//        }
+//        if (p == root_) {
+//            p = ac.state_move(p, ch);
+//            if (!p) {
+//                p = root_;
+//                continue;
+//            }
+//        }
+//        if (p->bits & B_FINAL) {
+//            if (!on_hit(p - root_))
+//                return false;
+//        }
+//        //if (1) {
+//        //    node_t* hz = p;
+//        //    for (; hz->zhit; hz = hz->zhit + root_) {
+//        //        //if (zhit->bits & B_FINAL)
+//        //        if (!on_hit(hz - root_))
+//        //            return false;
+//        //    };
+//        //}
+//        //if (options & AC_OPT_FAIL_SEARCH) {
+//        //    if (p->bits & B_FINAL_ON_FAILCHAIN) {
+//        //        node_t* temp = p->fail + root_;
+//        //        for (; temp != root_; temp = temp->fail + root_) {
+//        //            if (temp->bits & B_FINAL)
+//        //                if (!on_hit(temp - root_))
+//        //                    return false;
+//        //        };
+//        //    }
+//        //}
+//    }
+//    state = p - root_;
+//    return 0;
+//}
+
+class TrieBuilder {
+public:
+    struct level_info_t {
+        std::vector<noidx_t> from;
+        level_info_t() {
+            reset();
+        }
+        void reset() {
+            from.resize(from.size(), 0);
+        }
+    };
+    struct sv_view_t {
+        size_t start;
+        const sv_vector_t& strings;
+    };
+
+    std::vector<node_t> nodes__;
+    node_t* root_ = nullptr;
+    size_t nodes_size_ = 0;
+
+    size_t prealloc(const sv_vector_t& strings) {
+        size_t total = 0;
+        size_t maxlen = 0;
+        for (const auto& v : strings) {
+            size_t len = v.size();
+            total += len;
+            if (maxlen < len)
+                maxlen = len;
+        }
+        nodes__.resize(1 + total);
+        root_ = (node_t*)nodes__.data();
+        nodes_size_ = 0;
+        return maxlen;
+    }
+
+    static inline bool code_less(const node_t & l, const node_t & r) {
+        return l.code < r.code;
+    }
+
+    node_t* state_move(node_t * node, uint8_t ch) {
+        node_t* sub_first = node->base + root_;
+        node_t* sub_last = sub_first + node->len;
+        if (ch > 0x7f) {
+            for (; sub_last > sub_first; --sub_last) {
+                if (ch == sub_last[-1].code) return sub_last - 1;
+            }
+        }
+        else {
+            for (; sub_first < sub_last; ++sub_first) {
+                if (ch == sub_first->code) return sub_first;
+            }
+        }
+        return NULL;
+        //node_t fake; fake.code = ch;
+        //node_t* hit = std::lower_bound(sub_first, sub_last, fake, code_less);
+        //if (hit == sub_last) return NULL;
+        //if (hit->code != ch) return NULL;
+        //return hit;
+    }
+
+    //std::string get_string(size_t state) {
+    //    if (state >= nodes_size_)
+    //        return "";
+    //    std::string str;
+    //    for (; state; state = root_[state].parent) {
+    //        str.push_back(root_[state].code);
+    //    }
+    //    std::reverse(str.begin(), str.end());
+    //    return std::move(str);
+    //}
+
+    std::string_view dump() {
+        return std::string_view((char*)root_, sizeof(node_t) * nodes_size_);
+    }
+
+    template < typename callback_t >
+    bool search(size_t & state, const std::string_view & text, callback_t && on_hit) {
+        const uint8_t* data = (const uint8_t*)text.data();
+        size_t len = text.size();
+        node_t* last = root_ + nodes_size_;
+        if (state >= nodes_size_) state = 0;
+        node_t * p = root_ + state;
+        node_t * next = 0;
+        auto tail = data + len;
+        for (; data < tail; ++data) {
+            auto ch = *data;
+            while (p != root_) {
+                next = state_move(p, ch);
+                if (!next) {
+                    p = p->fail + root_;
+                    continue;
+                }
+                p = next;
+                break;
+            }
+            if (p == root_) {
+                p = state_move(p, ch);
+                if (!p) {
+                    p = root_;
+                    continue;
+                }
+            }
+            if (p->bits & B_FINAL) {
+                if( !(p - root_) ) 
+                    return false;
+            }
+            node_t* hz = p;
+            for (; hz->zhit; hz = hz->zhit + root_) {
+                if (!on_hit(hz - root_))
+                    return false;
+            }
+        }
+        state = p - root_;
+        return true;
+    }
+
+
+
+    void build_level(sv_vector_t & svv, size_t strpos, level_info_t * uplevel, level_info_t * level) {
+        for (size_t i = 0; i < svv.size(); ++i) {
+            const auto& sv = svv[i];
+            node_t* from = uplevel->from[i] + root_;
+            if (strpos == sv.size()) {
+                from->bits |= B_FINAL;
+                continue;
+            }
+            if (strpos >= sv.size()) {
+                continue;
+            }
+            uint8_t ch = sv[strpos];
+            node_t* curr = state_move(from, ch);
+            if (curr) {
+                level->from[i] = curr - root_;
+            }
+            else {
+                if (from->len++ == 0)
+                    from->base = nodes_size_;
+                size_t new_node_id = nodes_size_++;
+                level->from[i] = new_node_id;
+                node_t * new_node = root_ + new_node_id;
+                //new_node->parent = from - root_;
+                new_node->code = ch;
+                // set fail
+                node_t * fail_node = from->fail + root_;
+                while (fail_node != from) {
+                    node_t* target = state_move(fail_node, ch);
+                    if (target) {
+                        new_node->fail = target - root_;
+                        // set zhit
+                        for (; target != root_; target = target->fail + root_) {
+                            if (target->bits & B_FINAL) {
+                                new_node->zhit = new_node->fail;
+                                //new_node->bits |= B_FINAL_ON_FAILCHAIN;
+                                break;
+                            }
+                        }
+                        // OK
+                        break;
+                    }
+                    // continue
+                    auto next_fail = fail_node->fail + root_;
+                    if (next_fail == fail_node)
+                        break;
+                    fail_node = next_fail;
+                }
+            }
+        }
+    }
+
+    void build(sv_vector_t & strings) {
+        sv_view_t view{ 0, strings };
+        size_t depth = prealloc(strings);
+        level_info_t level1, level2;
+        level1.from.resize(strings.size(), 0);
+        level2.from.resize(strings.size(), 0);
+        // alloc empty root_
+        nodes_size_++;
+        level_info_t* current = &level1, * next = &level2;
+        for (size_t i = 0; i < depth + 1; ++i) {
+            build_level(strings, i, current, next);
+            std::swap(current, next);
+            next->reset();
+        }
+        nodes__.resize(nodes_size_);
+    }
+
+};
+
+#include <fstream>
+#include <set>
+#include <random>
+
+std::random_device generator;
+
+int main()
+{
+    std::ifstream file;
+    file.open("prefixes.txt");
+    std::deque<std::string> lines;
+    while (!file.eof()) {
+        std::string line;
+        std::getline(file, line);
+        if (line.empty())
+            continue;
+        lines.emplace_back(line);
+    };
+    file.close();
+
+    sv_vector_t patterns;
+    patterns.reserve(lines.size());
+    for (auto& l : lines) {
+        patterns.push_back(l);
+    }
+
+    patterns = {
+        ".com",
+        ".exe",
+        ".bat",
+        ".dll",
+    };
+
+    TrieBuilder tb;
+    std::sort(patterns.begin(), patterns.end());
+    tb.build(patterns);
+
+    size_t s = 0;
+    //tb.search(s, std::string("abcdef"), [&tb](size_t state) {
+    //    std::cout << tb.get_string(state) << std::endl;
+    //    }
+    //);
+
+    std::string data;
+    data.resize(10 * 1024 * 1024);
+
+    for (auto& ch : data) {
+        ch = 'a' + (generator() % 26);
+    }
+
+    std::ofstream of;
+    of.open("content.txt");
+    of.write(data.c_str(), data.size());
+    of.close();
+
+    std::string_view text(data);
+    std::cout << 0 << std::endl;
+    s = 0;
+    for (size_t k = 0; k < 50; ++k) {
+        tb.search(s, text, [&tb](size_t state) {
+            //std::cout << state << std::endl;
+            return true;
+            }
+        );
+    }
+    //std::cout << tb.get_string(s) << std::endl;
+
+    std::deque<void*> ax;
+    std::cout << tb.nodes__.size() * sizeof(node_t) << std::endl;
+
+    s1_ac_t ac1;
+    ac1.build("ha1_ha2_haA_ha1_ha2_haA_ha1_ha2_haB_ha1_ha2_haC");
+    std::cout << ac1.dump() << std::endl;
+
+    size_t state = 0;
+    bool has = ac1.feed(state, "ha1_ha2_ha3_ha4_ha2_ha3");
+
+    std::cout << "Hello World!\n";
+}
+
+
+//
+//class ac_t {
+//public:
+//    struct node_t {
+//        uint32_t    parent : 31;     // entry index of parent
+//        uint32_t    is_final : 1;    //
+//        uint32_t    entries : 31;    // start of entries
+//        uint32_t    is_tail : 1;
+//        union {
+//            asc_map_t bits;
+//            uint32_t tail;          // tail string
+//        };
+//    }; 
+//    struct entry_t {
+//        uint8_t     seqid;          //
+//        uint8_t     code;
+//        uint32_t    node;           // 
+//    };
+//
+//    struct Node {
+//        uint32_t ni;
+//        uint8_t  ec;
+//    };
+//
+//    std::deque<node_t> root_;
+//    std::deque<entry_t> entries_;
+//    int build(sv_vector_t& sv) {
+//        Node root_ = alloc_node(
+//        std::sort(sv.begin(), sv.end());
+//
+//    }
+//protected:
+//    Node alloc_node(size_t entry, asc_map_t& bits) {
+//        node_t n;
+//        n.parent = entry;
+//        n.is_final = 0;
+//        n.entries = entries_.size();
+//        n.is_tail = false;
+//        n.bits = bits;
+//        size_t ni = root_.size();
+//        root_.push_back(n);
+//        entries_.resize(entries_.size() + bits.count());
+//        return Node{ ni, bits.count() };
+//    }
+//};
+//
+//
+//class daac_t {
+//public:
+//    struct node_t {
+//        uint32_t    parent : 31;     // entry index of parent
+//        uint32_t    is_final : 1;    //
+//        uint32_t    entries : 31;    // start of entries
+//        uint32_t    is_tail : 1;
+//        union {
+//            uint64_t bits[4];
+//            uint32_t tail;          // tail string
+//        };
+//    };
+//    struct entry_t {
+//        uint8_t     seqid;          //
+//        uint8_t     code;
+//        uint32_t    node;           // 
+//    };
+//
+//    struct state_t {
+//        uint32_t base : 31;
+//        uint32_t is_final : 1;
+//        union {
+//            struct {
+//                uint32_t unnamed : 31;
+//                uint32_t is_free : 1;
+//            };
+//            uint32_t check;
+//        };
+//        uint32_t match_set; // start index to m_flat_match_set
+//        uint32_t fail_link; // link to fail state_t
+//    };
+//protected:
+//    std::deque<state_t> states_;
+//protected:
+//    size_t prealloc(const sv_vector_t& strings) {
+//        size_t total = 0;
+//        size_t maxlen = 0;
+//        for (const auto& v : strings) {
+//            size_t len = v.size();
+//            total += len;
+//            if (maxlen < len)
+//                maxlen = len;
+//        }
+//        total *= 128;
+//        states_.resize(total);
+//        return maxlen;
+//    }
+//public:
+//    state_t& state_t(size_t s) {
+//        if (s < states_.size())
+//            return states_[s];
+//        states_.resize(s + 256);
+//        return states_[s];
+//    }
+//    uint32_t base(size_t i) {
+//        return state_t(i).base;
+//    }
+//    uint32_t check(size_t i) {
+//        return state_t(i).check;
+//    }
+//    int build(sv_vector_t & strings) {
+//        std::sort(strings.begin(), strings.end());
+//        size_t max_len = prealloc(strings);
+//        state_t(0).base = 1;
+//        state_t(0).check = 0;
+//        state_t(0).fail_link = 0;
+//        size_t max_state = 0;
+//        size_t num = strings.size();
+//        size_t svbi = 0;
+//        size_t ls = 0;
+//        for (size_t i = 0; i < max_len; ++i) {
+//            std::bitset<256> bs;
+//            std::deque<uint8_t> children;
+//            int q = 0;
+//            for (size_t n = svbi; n < num; ++n) {
+//                const auto& sv = strings[n];
+//                if (sv.size() <= n) {
+//                    svbi = n + 1;
+//                    continue;
+//                }
+//                uint8_t ch = sv[i];
+//                if (bs.test(ch))
+//                    continue;
+//                bs.set(ch);
+//                children.push_back(ch);
+//            }
+//
+//            size_t bc = children.size();
+//            size_t s = ls;
+//
+//            for (uint8_t base : children) {
+//                check[root_.childreni]
+//            }
+//
+//            // process this level
+//            for (size_t n = svbi; n < num; ++n)
+//            {
+//                const auto& sv = strings[n];
+//                if (n < sv.size()) {
+//                    uint8_t ch = sv[i];
+//                    size_t t = state_t(s).base + ch;
+//                    state_t(t).check = s;
+//                    state_t(t).base = s + bc;
+//                }
+//                else
+//                {
+//                    state_t(t).is_final = 1;
+//                    state_t(t).svbi = n + 1;
+//                }
+//            }
+//            ls += bc;
+//        }
+//        for (auto& sv : strings) {
+//            size_t s = 0;
+//            for (uint8_t ch : sv) {
+//                size_t t = state_t(s).base + ch;
+//                state_t(t).check = s;
+//                state_t(t).base = ss;
+//                s = t;
+//                if (s > max_state) max_state = s;
+//            }
+//        }
+//        states_.resize(max_state + 1);
+//        return 0;
+//    }
+//};
+//
+
+
+
+// 运行程序: Ctrl + F5 或调试 >“开始执行(不调试)”菜单
+// 调试程序: F5 或调试 >“开始调试”菜单
+
+// 入门提示: 
+//   1. 使用解决方案资源管理器窗口添加/管理文件
+//   2. 使用团队资源管理器窗口连接到源代码管理
+//   3. 使用输出窗口查看生成输出和其他消息
+//   4. 使用错误列表窗口查看错误
+//   5. 转到“项目”>“添加新项”以创建新的代码文件，或转到“项目”>“添加现有项”以将现有代码文件添加到项目
+//   6. 将来，若要再次打开此项目，请转到“文件”>“打开”>“项目”并选择 .sln 文件
+//
+//#include <zintrin.h>
+//
+//typedef uint32_t offset_t;
+//
+//class node_1 {
+//    uint8_t  mode : 1;
+//    uint8_t  final : 1;
+//    uint8_t  code;
+//    offset_t check;
+//    offset_t fail;
+//    offset_t base;
+//};
+//struct node_n {
+//    uint8_t  mode : 1;
+//    uint8_t  final : 1;
+//    uint16_t l0bits;
+//    offset_t check;
+//    offset_t fail;
+//    uint16_t l1bita[0]; // len = popcnt(l0bits);
+//    offset_t* try_move_by(uint8_t ch) {
+//        auto l0i = ch >> 4;
+//        auto l1i = ch & 15;
+//        if (0 == ((1 << l0i) & l0bits)) {
+//            return NULL;
+//        }
+//        auto l1a = popcnt((-1 << l0i) & l0bits;
+//        uint16_t l1bits = l1bita + l1a;
+//        if (0 == ((1 << l1i) & l1bits)) {
+//            return NULL;
+//        }
+//    }
+//};
