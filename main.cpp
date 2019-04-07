@@ -360,12 +360,23 @@ public:
         inline size_t size() const {
             return size_;
         };
-        __forceinline State move_to(const State& from, uint8_t code) const {
+        __forceinline bool move_to(State& from, uint8_t code) const {
             id_t to = from.state->base + code;
-            return set_to(to);
+            const state_t* target = states_ + to;
+            bool success = (target->check == from.id);
+            bool from_root = from.id > 0;
+            if (!success && from_root) {
+                from.id = 0;
+                from.state = 0;
+            }
+            else {
+                from.id = success ? to : from.state->fail;
+                from.state = success ? target : (states_ + from.state->fail);
+            }
+            return success;
         }
-        __forceinline State set_to(id_t to) const {
-            return State{ to, states_ + to };
+        __forceinline State set_to(id_t id) const {
+            return State{ id, states_ + id };
         }
         size_t room() const {
             return size_ * sizeof(state_t);
@@ -379,7 +390,7 @@ public:
     }
 
     template < typename T>
-    bool make(T & searcher) {
+    bool make(T& searcher) {
         size_t valid_count = 0;
         for (id_t i = 0; i < states_.size(); ++i) {
             if (states_[i].base || states_[i].attr) {
@@ -419,25 +430,36 @@ public:
         inline size_t size() const {
             return succinct_bitmap_.length();
         }
-        __forceinline State move_to(const State& from, uint8_t code) const {
+
+        __forceinline bool move_to(State& from, uint8_t code) const {
+            bool from_root = from.id > 0;
             id_t to = from.state->base + code;
-            return State{ to, succinct_bitmap_.lookup(to) ?
-                    &succinct_states_[succinct_bitmap_.rank(to)] :
-                    &InvalidState
-            };
+            bool success = succinct_bitmap_.lookup(to);
+            const state_t* target = nullptr;
+            if (success) {
+                target = &succinct_states_[succinct_bitmap_.rank(to)];
+                success = (target->check == from.id);
+            }
+            if (!success && from_root) {
+                from.state = 0;
+                return false;
+            }
+            if (!success) {
+                to = from.state->fail;
+                target = &succinct_states_[succinct_bitmap_.rank(to)];
+            }
+            from.id = to;
+            from.state = target;
+            return success;
         }
         __forceinline State set_to(id_t to) const {
             if (!to) return { 0, &succinct_states_[0] };
-            return { to, succinct_bitmap_.lookup(to) ?
-                    &succinct_states_[succinct_bitmap_.rank(to)] :
-                    &InvalidState
-            };
+            return  { to, &succinct_states_[succinct_bitmap_.rank(to)] };
         }
         size_t room() const {
             return succinct_bitmap_.room() +
                 succinct_states_.size() * sizeof(state_t);
         }
-
     };
 
     class cuckoo_map_t {
@@ -498,15 +520,36 @@ public:
         inline size_t size() const {
             return states_.size();
         }
-        __forceinline State move_to(const State& from, uint8_t code) const {
+
+        __forceinline bool move_to(State& from, uint8_t code) const {
+            bool from_root = from.id > 0;
             id_t to = from.state->base + code;
             auto it = states_.find(to);
-            const state_t* state = it == states_.end() ? &InvalidState : &it->second;
-            return State{ to, state };
+            bool success = it != states_.end();
+            const state_t* state = 0;
+            if( success ) {
+                state = &it->second;
+                success = state->check == from.id;
+            }
+            if(!success && from_root ) {
+                from.state = 0;
+                return false;
+            }
+            if( !success ) {
+                to = from.state->fail;
+                state = &(states_.find(to)->second);
+            }
+
+            from.id = to;
+            from.state = state;
+
+            return success;
+
         }
+
         __forceinline State set_to(id_t to) const {
             auto it = states_.find(to);
-            const state_t* state = it == states_.end() ? &InvalidState : &it->second;
+            const state_t* state = &it->second;
             return State{ to, state };
         }
 
@@ -545,10 +588,31 @@ public:
         inline size_t size() const {
             return states_.size();
         }
-        __forceinline State move_to(const State& from, uint8_t code) const {
+        //__forceinline State move_to(const State& from, uint8_t code) const {
+        //    id_t to = from.state->base + code;
+        //    return { to, find_state(to) };
+        //}
+        __forceinline bool move_to(State& from, uint8_t code) const {
+            bool from_root = from.id > 0;
             id_t to = from.state->base + code;
-            return { to, find_state(to) };
+            const state_t* state = find_state(to);
+            if (state) {
+                state = state->check == from.id ? state : nullptr;
+            }
+            if (!state && from_root) {
+                from.state = 0;
+                return false;
+            }
+            if (!state) {
+                to = from.state->fail;
+                state = find_state(to);
+            }
+            from.id = to;
+            from.state = state;
+            return state != 0;
         }
+
+
         __forceinline State set_to(id_t to) const {
             return { to, find_state(to) };
         }
@@ -560,7 +624,7 @@ public:
             _item_t key = { state_id };
             auto it = std::lower_bound(states_.begin(), states_.end(), key);
             bool miss = (it == states_.end()) || (it->id != state_id);
-            return miss ? &InvalidState : &(it->state);
+            return miss ? nullptr : &(it->state);
         }
     };
 };
@@ -582,30 +646,20 @@ static int ac_match(
     for (; data < tail; ++data) {
         uint8_t b8 = *data;
         uint8_t ch = code_table[b8];
-        while (p.id != 0) {
-            typename T::State next = machine.move_to(p, ch);
-            if (next.state->check != p.id) {
-                p = machine.set_to(p.state->fail);
-                if (!p.id) break;
+        for (; p.state; ) {
+            if (!machine.move_to(p, ch))
                 continue;
+            // success
+            if (p.state->attr & (B_FINAL | B_HAS_MATCH)) {
+                state = p.id;
+                // need skip the matched byte
+                buffer.data = data + 1;
+                return true;
             }
-            p = next;
-            if (verbose) printf("%c|%d > ", b8, p.id);
             break;
         }
-        if (p.id == 0) {
-            typename T::State next = machine.move_to(p, ch);
-            if (next.state->check != p.id)
-                continue;
-            p = next;
-            if (verbose) printf("%c|%d > ", b8, p.id);
-        }
-        // 如果自己是FINAL节点，或者有FINAL节点链，则表示命中了
-        if (p.state->attr & (B_FINAL | B_HAS_MATCH)) {
-            state = p.id;
-            // need skip the matched byte
-            buffer.data = data + 1;
-            return true;
+        if (!p.state) {
+            p = machine.set_to(0);
         }
     }
     state = p.id;
@@ -644,7 +698,7 @@ void speed_test(const T & searcher, const uint8_t * coder, const std::string & t
 int main() {
 
     std::ifstream file;
-    file.open("prefixes.txt");
+    file.open("Untitled-1.txt");
     std::deque<std::string> lines;
     while (!file.eof()) {
         std::string line;
@@ -690,5 +744,5 @@ int main() {
     speed_test(bitvec, daac.code_table(), text, 10);
     speed_test(sorted, daac.code_table(), text, 2);
     speed_test(stlmap, daac.code_table(), text, 2);
-    speed_test(cuckoo, daac.code_table(), text, 2);
+    //speed_test(cuckoo, daac.code_table(), text, 2);
 }
