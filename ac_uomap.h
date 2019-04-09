@@ -1,65 +1,120 @@
 #pragma once
+#include <stdint.h>
+#include <unordered_map>
+#include "ac_comm.h"
+#include "ac_match.hxx"
+#include "ac_builder.h"
 
-namespace ac {
-
-    class unordered_map_t {
-        using state_hash_table_t = std::unordered_map<state_id_t, _state_t>;
-        state_hash_table_t states_;
+namespace ac
+{
+    template < typename _StateId = StateId>
+    class HashTable {
+    protected:
+        struct _state_t {
+            _StateId base_;
+            _StateId check;
+            _StateId fail;
+            _StateId match;
+            inline _StateId base() const {
+                return BaseAcc::get_value(base_);
+            }
+            inline _StateId is_final() const {
+                return BaseAcc::is_final(base_);
+            }
+            inline void set_base(size_t base) {
+                base_ = base;
+            }
+            inline void set_final(size_t any) {
+                if (any) BaseAcc::set_final(base_);
+            }
+        };
+        using _match_t = _StateId;
+        struct _match_state_t {
+            _StateId id;
+            const _state_t* s;
+        };
+    protected:
+        typedef  std::unordered_map<_StateId, _state_t> StateTable; 
+        StateTable states_;
+        std::vector<_match_t> matches_;
+        size_t states_size_ = 0;
+    protected:
+        const _state_t* __find_state(_StateId id) const {
+            if (id >= states_size_) return NULL;
+            auto it = states_.find(id);
+            if (it == states_.end()) return NULL;
+            return &it->second;
+        }
     public:
-        using _state_t = daac_t::_state_t;
-        using state_id_t = daac_t::state_id_t;
-        using State = daac_t::State;
-        // for make
-        void resize(size_t state_count, size_t valid_count) {
-            states_.clear();
-            states_.reserve(valid_count);
+        // for ac_match
+        using MatchStateId = _StateId;
+        using MatchState = _match_state_t;
+        // for 
+        MatchState     get_state(MatchStateId id) const {
+            if (!id || id >= states_size_)
+                return { 0, __find_state(0) };
+            return  { id, __find_state(id) };
         }
-        void add_state(state_id_t state_id, const _state_t& state) {
-            states_[state_id] = state;
-        }
-        void done() {
-        }
-        // for match
-        inline size_t size() const {
-            return states_.size();
-        }
-
-        __forceinline bool move_to(State& from, uint8_t code) const {
-            bool from_root = from.id == 0;
-            state_id_t to = from.state->base + code;
-            auto it = states_.find(to);
-            bool success = it != states_.end();
-            const _state_t* state = 0;
+        inline MoveRet  move_state(MatchState & current, uint8_t code) const {
+            bool from_root = current.id == 0;
+            MatchStateId to = current.s->base() + code;
+            const _state_t* target = __find_state(to);
+            bool success = !!target;
             if (success) {
-                state = &it->second;
-                success = state->check == from.id;
+                success = (target->check == current.id);
             }
             if (!success && from_root) {
-                from.state = 0;
-                return false;
+                current.s = __find_state(0);
+                return SM_REACH_ROOT;
             }
             if (!success) {
-                to = from.state->fail;
-                state = &(states_.find(to)->second);
+                to = current.s->fail;
+                target = __find_state(to);
             }
-
-            from.id = to;
-            from.state = state;
-
-            return success;
-
+            current.id = to;
+            current.s = target;
+            return success ? SM_ACCEPTED : SM_FAIL_LINK;
+        }
+        bool        is_final(const MatchState & state) const {
+            return state.s->is_final();
+        }
+        MatchStateId  id_of(const MatchState & state) const {
+            return state.id;
         }
 
-        __forceinline State set_to(state_id_t to) const {
-            auto it = states_.find(to);
-            const _state_t* state = &it->second;
-            return State{ to, state };
-        }
+    public:
 
-        // 
+    public:
+        bool resize(size_t state_count, size_t valid_count, size_t match_count) {
+            states_size_ = state_count;
+            states_.reserve(valid_count);
+            matches_.reserve(match_count);
+            return true;
+        }
+        bool add_state(size_t id, const ac::State & state, size_t mc, const ac::MatchPair * matches) {
+            _state_t state_;
+            state_.base_ = state.base;
+            state_.check = state.check;
+            state_.fail = state.fail;
+            state_.set_final(state.attr & S_FINAL);
+            state_.match = mc ? matches_.size() : 0;
+            for (size_t i = 0; i < mc; ++i) {
+                matches_.push_back(matches[i].kwidx);
+            }
+            states_[id] = state_;
+            return true;
+        }
+        bool done() {
+            return true;
+        }
         size_t room() const {
-            return 0;
+            const size_t bucket_count = states_.bucket_count();
+             size_t hash_table_size = 0;
+            for( size_t i = 0; i < bucket_count; ++ i ) {
+                hash_table_size += states_.bucket_size(i) * sizeof(StateTable::value_type);
+            }
+            return hash_table_size + matches_.size() * sizeof(_match_t);
         }
     };
-
 };
+

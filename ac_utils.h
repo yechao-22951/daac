@@ -1,10 +1,11 @@
 #pragma once
 #include <string>
+#include <Windows.h>
 #include "ac_match.hxx"
 
 namespace ac {
     template <typename T >
-    void speed_test_2(const T& searcher, const uint8_t* coder, const std::string& text, size_t loop) {
+    void speed_test(const T& searcher, const uint8_t* coder, const std::string& text, size_t loop) {
         const char* class_name = typeid(T).name();
         typename T::MatchStateId state = 0;
         double total = text.size() * loop;
