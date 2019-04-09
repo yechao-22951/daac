@@ -40,5 +40,41 @@
     <ClInclude Include="matcher.h">
       <Filter>源文件</Filter>
     </ClInclude>
+    <ClInclude Include="score_board.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_match.hxx">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_comm.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_builder.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_byte_coder.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_keywords.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_datrie.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_match_list.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_uomap.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_bitvec.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ac_utils.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="nest_decoder.h">
+      <Filter>源文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

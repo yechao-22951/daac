@@ -17,6 +17,7 @@ namespace sm {
             const uint8_t* data;
             const uint8_t* tail;
         };
+
         size_t mem_bound_size(mem_bound_t& mb) {
             return mb.tail - mb.data;
         }

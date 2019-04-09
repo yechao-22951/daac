@@ -5,8 +5,11 @@
 #include <iostream>
 #include <fstream>
 #include "rankable_bit_vector.hpp"
-#include <libcuckoo/cuckoohash_map.hh>
 #include <unordered_map>
+#include "ac_builder.h"
+#include "ac_bitvec.h"
+#include "ac_datrie.h"
+//#include <score_board.h>
 
 std::random_device generator;
 
@@ -95,10 +98,10 @@ class daac_t {
 public:
     using id_t = st_idx_t;
     struct state_t {
-        uint8_t attr = 0;           // B_FINAL
         st_idx_t base = 0;          // start from in array
-        st_idx_t check = 0;         // parent state
+        st_idx_t check = -1;        // parent state
         st_idx_t fail = 0;          // fail_link
+        uint8_t attr = 0;           // B_FINAL
         //uint32_t user = 0;
     };
 protected:
@@ -117,17 +120,18 @@ protected:
     using store_t = std::vector<state_t>;
     store_t states_;
     uint8_t options_ = 0;
-    byte_coder_t coder_;
+    ac::byte_coder_t coder_;
     state_t* array_ = 0;
 
 protected:
 
-    size_t state_try_move(size_t state, uint8_t ch) {
+    size_t state_try_move(size_t state, uint8_t code) {
         state_t* from = da_node(state);
-        if (!from->base) return 0;
-        size_t next = from->base + ch;
+        size_t next = from->base + code;
         state_t* node = da_node(next);
         if (!node) return 0;
+        if (node->check != state)
+            return 0;
         return next;
     }
     state_t* da_node(size_t s, bool alloc = false) {
@@ -143,11 +147,11 @@ protected:
         return states_.size();
     }
 
-    long build_level(const keywords_t & keywords, size_t strpos, level_info_t * up_level, level_info_t * level) {
+    long build_level(const ac::keywords_t & keywords, size_t strpos, level_info_t * up_level, level_info_t * level) {
         size_t rest = 0;
         for (size_t i = 0; i < keywords.size(); ++i)
         {
-            const keyword_t& kw = keywords[i];
+            const ac::keyword_t& kw = keywords[i];
             if (strpos > kw.size())
                 continue;
 
@@ -168,9 +172,9 @@ protected:
                 continue;
             }
 
-            uint8_t ch = kw[strpos];
+            uint8_t b8 = kw[strpos];
             //ch = _byte(ch, options_);
-            ch = coder_[ch];
+            uint8_t ch = code_table()[b8];
 
             if (!parent->base)
                 parent->base = da_current_size();
@@ -183,7 +187,10 @@ protected:
             level->state[i] = new_state;
 
             state_t * new_state_node = da_node(new_state);
-            if (new_state_node) continue;
+            if (new_state_node && new_state_node->check != -1) 
+                continue;
+
+            putchar(b8);
 
             new_state_node = da_node(new_state, true);
             // alloc here
@@ -226,13 +233,13 @@ public:
         options_ = 0;
         if (array_) delete array_;
     }
-    bool build(keywords_t & keywords, uint8_t options) {
+    bool build(ac::keywords_t & keywords, uint8_t options) {
         size_t total = coder_.build(keywords, options);
 
-        states_.reserve(total * coder_.code_limit() * 0.5);
+        states_.reserve(total * coder_.max_code() * 0.5);
 
         options_ = options;
-        typename keyword_t::less_compare_t less((options & ACFF_CASE_SENSITIVE) != 0);
+        typename ac::keyword_t::less_compare_t less(!!(options&ac::CASE_IGNORE));
         std::sort(keywords.begin(), keywords.end(), less);
 
         state_t * root = da_node(0, true);
@@ -250,15 +257,15 @@ public:
             lev_next->reset();
         }
         size_t state_count = states_.size();
-        size_t used_states = 0;
-        array_ = (state_t*)calloc(state_count + 1, sizeof(state_t));
-        for (size_t i = 0; i < states_.size(); ++i) {
-            array_[i] = states_[i];
-            if (array_[i].base || array_[i].attr) {
-                used_states++;
-            }
-        }
-        array_[state_count] = state_t{};
+        //size_t used_states = 0;
+        //array_ = (state_t*)calloc(state_count + 1, sizeof(state_t));
+        //for (size_t i = 0; i < states_.size(); ++i) {
+        //    array_[i] = states_[i];
+        //    if (array_[i].base || array_[i].attr) {
+        //        used_states++;
+        //    }
+        //}
+        //array_[state_count] = state_t{};
         //states_.clear();
         return true;
     }
@@ -271,7 +278,7 @@ public:
         const size_t max_state = states_.size();
         if (p >= max_state) p = 0;
         //printf("\nb %c : %d -> ", ch, p);
-        ch = coder_[ch];
+        ch = code_table()[ch];
         while (p != 0) {
             size_t next = DA_BASE(p) + ch;
             if (DA_CHECK(next) != p) {
@@ -308,7 +315,7 @@ public:
         size_t p = state;
         for (; data < tail; ++data) {
             uint8_t b8 = *data;
-            uint8_t ch = coder_[b8];
+            uint8_t ch = code_table()[b8];
             while (p != 0) {
                 size_t next = DA_BASE(p) + ch;
                 if (DA_CHECK(next) != p) {
@@ -363,8 +370,8 @@ public:
         __forceinline bool move_to(State& from, uint8_t code) const {
             id_t to = from.state->base + code;
             const state_t* target = states_ + to;
-            bool success = (target->check == from.id);
-            bool from_root = from.id > 0;
+            bool success = (to < size_) && (target->check == from.id);
+            bool from_root = from.id == 0;
             if (!success && from_root) {
                 from.id = 0;
                 from.state = 0;
@@ -432,9 +439,9 @@ public:
         }
 
         __forceinline bool move_to(State& from, uint8_t code) const {
-            bool from_root = from.id > 0;
+            bool from_root = from.id == 0;
             id_t to = from.state->base + code;
-            bool success = succinct_bitmap_.lookup(to);
+            bool success = to < succinct_bitmap_.length() ? succinct_bitmap_.lookup(to) : false;
             const state_t* target = nullptr;
             if (success) {
                 target = &succinct_states_[succinct_bitmap_.rank(to)];
@@ -446,7 +453,7 @@ public:
             }
             if (!success) {
                 to = from.state->fail;
-                target = &succinct_states_[succinct_bitmap_.rank(to)];
+                target = &succinct_states_[to ? succinct_bitmap_.rank(to) : 0];
             }
             from.id = to;
             from.state = target;
@@ -462,179 +469,14 @@ public:
         }
     };
 
-    class cuckoo_map_t {
-        using state_hash_table_t = cuckoohash_map<st_idx_t, state_t>;
-        state_hash_table_t states_;
-    public:
-        using state_t = daac_t::state_t;
-        using id_t = daac_t::id_t;
-        using State = daac_t::State;
-        // for make
-        void resize(size_t state_count, size_t valid_count) {
-            states_.clear();
-            states_.reserve(valid_count);
-        }
-        void add_state(id_t state_id, const state_t& state) {
-            states_.insert(state_id, state);
-        }
-        void done() {
-        }
-        // for match
-        inline size_t size() const {
-            return states_.size();
-        }
-        __forceinline State move_to(const State& from, uint8_t code) const {
-            id_t to = from.state->base + code;
-            const state_t* state = states_.find_mapped(to);
-            return State{ to, state ? state : &InvalidState };
-        }
-        __forceinline State set_to(id_t to) const {
-            const state_t* state = states_.find_mapped(to);
-            return State{ to, state ? state : &InvalidState };
-        }
-
-        // 
-        size_t room() const {
-            return 0;
-        }
-    };
-
-    class unordered_map_t {
-        using state_hash_table_t = std::unordered_map<st_idx_t, state_t>;
-        state_hash_table_t states_;
-    public:
-        using state_t = daac_t::state_t;
-        using id_t = daac_t::id_t;
-        using State = daac_t::State;
-        // for make
-        void resize(size_t state_count, size_t valid_count) {
-            states_.clear();
-            states_.reserve(valid_count);
-        }
-        void add_state(id_t state_id, const state_t& state) {
-            states_[state_id] = state;
-        }
-        void done() {
-        }
-        // for match
-        inline size_t size() const {
-            return states_.size();
-        }
-
-        __forceinline bool move_to(State& from, uint8_t code) const {
-            bool from_root = from.id > 0;
-            id_t to = from.state->base + code;
-            auto it = states_.find(to);
-            bool success = it != states_.end();
-            const state_t* state = 0;
-            if( success ) {
-                state = &it->second;
-                success = state->check == from.id;
-            }
-            if(!success && from_root ) {
-                from.state = 0;
-                return false;
-            }
-            if( !success ) {
-                to = from.state->fail;
-                state = &(states_.find(to)->second);
-            }
-
-            from.id = to;
-            from.state = state;
-
-            return success;
-
-        }
-
-        __forceinline State set_to(id_t to) const {
-            auto it = states_.find(to);
-            const state_t* state = &it->second;
-            return State{ to, state };
-        }
-
-        // 
-        size_t room() const {
-            return 0;
-        }
-    };
-
-    class sorted_states_t {
-        struct _item_t {
-            st_idx_t id;
-            state_t state;
-            bool operator < (const _item_t& r) const {
-                return id < r.id;
-            }
-        };
-        using state_table_t = std::vector<_item_t>;
-        state_table_t states_;
-    public:
-        using state_t = daac_t::state_t;
-        using id_t = daac_t::id_t;
-        using State = daac_t::State;
-        // for make
-        void resize(size_t state_count, size_t valid_count) {
-            states_.clear();
-            states_.reserve(valid_count);
-        }
-        void add_state(id_t state_id, const state_t& state) {
-            states_.emplace_back(_item_t{ state_id, state });
-        }
-        void done() {
-            std::sort(states_.begin(), states_.end());
-        }
-        // for match
-        inline size_t size() const {
-            return states_.size();
-        }
-        //__forceinline State move_to(const State& from, uint8_t code) const {
-        //    id_t to = from.state->base + code;
-        //    return { to, find_state(to) };
-        //}
-        __forceinline bool move_to(State& from, uint8_t code) const {
-            bool from_root = from.id > 0;
-            id_t to = from.state->base + code;
-            const state_t* state = find_state(to);
-            if (state) {
-                state = state->check == from.id ? state : nullptr;
-            }
-            if (!state && from_root) {
-                from.state = 0;
-                return false;
-            }
-            if (!state) {
-                to = from.state->fail;
-                state = find_state(to);
-            }
-            from.id = to;
-            from.state = state;
-            return state != 0;
-        }
-
-
-        __forceinline State set_to(id_t to) const {
-            return { to, find_state(to) };
-        }
-        size_t room() const {
-            return sizeof(_item_t)* states_.size();
-        }
-        __forceinline const state_t* find_state(id_t state_id) const {
-            if (!state_id) return &states_[0].state;
-            _item_t key = { state_id };
-            auto it = std::lower_bound(states_.begin(), states_.end(), key);
-            bool miss = (it == states_.end()) || (it->id != state_id);
-            return miss ? nullptr : &(it->state);
-        }
-    };
 };
 
 template <typename T>
 static int ac_match(
-    const T & machine,
-    const uint8_t * code_table,
-    typename T::id_t & state,
-    mem_bound_t & buffer,
+    const T& machine,
+    const uint8_t* code_table,
+    typename T::id_t& state,
+    mem_bound_t& buffer,
     bool verbose)
 {
     const uint8_t* data = buffer.data;
@@ -646,6 +488,7 @@ static int ac_match(
     for (; data < tail; ++data) {
         uint8_t b8 = *data;
         uint8_t ch = code_table[b8];
+
         for (; p.state; ) {
             if (!machine.move_to(p, ch))
                 continue;
@@ -658,9 +501,8 @@ static int ac_match(
             }
             break;
         }
-        if (!p.state) {
+        if (!p.state)
             p = machine.set_to(0);
-        }
     }
     state = p.id;
     buffer.data = data;
@@ -677,7 +519,7 @@ using daac32_t = daac_t<uint32_t>;
 #include <Windows.h>
 
 template <typename T >
-void speed_test(const T & searcher, const uint8_t * coder, const std::string & text, size_t loop) {
+void speed_test(const T& searcher, const uint8_t* coder, const std::string& text, size_t loop) {
     const char* class_name = typeid(T).name();
     typename T::id_t state = 0;
     size_t total = text.size() * loop;
@@ -695,10 +537,28 @@ void speed_test(const T & searcher, const uint8_t * coder, const std::string & t
         class_name, searcher.room(), (size_t)durtion, total, total / durtion * 1000 / 1024 / 1024, matched);
 }
 
+
+#include "ac_match.hxx"
+#include "ac_utils.h"
+
 int main() {
 
+    std::vector<int> scores[20];
+    for (size_t i = 0; i < 20; ++i) {
+        scores[i].resize(10000);
+    }
+
+    std::unordered_map<int, int> scores_map[20];
+    for (size_t i = 0; i < 20; ++i) {
+        for (size_t j = 0; j < 1000; ++j) {
+            scores_map[i][j] = 1;
+        }
+    }
+
+    ac::DoubleArrayBuilder dab;
+
     std::ifstream file;
-    file.open("Untitled-1.txt");
+    file.open("find.txt");
     std::deque<std::string> lines;
     while (!file.eof()) {
         std::string line;
@@ -709,29 +569,40 @@ int main() {
     };
     file.close();
 
-    lines.push_back("ka");
+    //lines.clear();
+    //lines.push_back("yec");
+    //lines.push_back();
 
-    keywords_t kws;
+    //lines = {
+    //"she",
+    //"her",
+    //"here",
+    //"his",
+    //"hero"
+    //};
+
+    ac::keywords_t kws;
     kws.reserve(lines.size());
     for (auto& l : lines) {
         kws.push_back(l);
     }
 
-    daac32_t daac;
-    std::cout << GetTickCount() << std::endl;
-    daac.build(kws, 0);
-    std::cout << GetTickCount() << std::endl;
+    dab.build(kws,0);
 
-    daac32_t::cuckoo_map_t cuckoo;
+    ac::SuccinctArray<> sa;
+    ac::DoubleArray32 da;
+    dab.make(sa);
+    dab.make(da);
+
+    printf("\n");
+    daac32_t daac;
+    daac.build(kws,0);
+
     daac32_t::succinct_bitvec_t bitvec;
     daac32_t::double_array_t normal = daac.get_view();
-    daac32_t::unordered_map_t stlmap;
-    daac32_t::sorted_states_t sorted;
 
-    daac.make(cuckoo);
     daac.make(bitvec);
-    daac.make(stlmap);
-    daac.make(sorted);
+    //daac.make(stlmap);
 
     std::string text;
     text.resize(1024 * 1024 * 10);
@@ -740,9 +611,21 @@ int main() {
         ch = 'a' + (generator() % 26);
     }
 
-    speed_test(normal, daac.code_table(), text, 10);
-    speed_test(bitvec, daac.code_table(), text, 10);
-    speed_test(sorted, daac.code_table(), text, 2);
-    speed_test(stlmap, daac.code_table(), text, 2);
+    text += "/home/joy/.wine/drive_c/windows/system32/api-ms-win-core-kernel32-private-l1-1-1.dll";
+
+    size_t c = ac::hit_count(text, std::string("yec"));
+    printf( "count = %d\n", c);
+
+    bool same = ac::consistence_check(sa, da, dab.code_table(), text, 1);
+    printf("%d\n", same);
+
+    speed_test_2(sa, dab.code_table(), text, 10);
+    speed_test_2(da, dab.code_table(), text, 10);
+
+    speed_test(normal, daac.code_table(), text, 1);
+    speed_test(bitvec, daac.code_table(), text, 1);
+    //speed_test(stlmap, daac.code_table(), text, 10);
+    //speed_test(sorted, daac.code_table(), text, 5);
+    //speed_test(stlmap, daac.code_table(), text, 5);
     //speed_test(cuckoo, daac.code_table(), text, 2);
 }
