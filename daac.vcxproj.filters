@@ -79,5 +79,8 @@
     <ClInclude Include="标头.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="sm_descape.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

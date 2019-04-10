@@ -205,6 +205,7 @@
     <ClInclude Include="rank_select.h" />
     <ClInclude Include="rankable_bit_vector.hpp" />
     <ClInclude Include="score_board.h" />
+    <ClInclude Include="sm_descape.h" />
     <ClInclude Include="标头.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -10,6 +10,7 @@
 #include "ac_bitvec.h"
 #include "ac_datrie.h"
 #include "ac_uomap.h"
+#include "sm_descape.h"
 
 std::random_device generator;
 
@@ -17,6 +18,12 @@ std::random_device generator;
 #include "ac_utils.h"
 
 int main() {
+
+    //mp::NestUnescape decoder;
+    //std::string xxx = "AA%u\\x41\\x41bb ";
+    //for( uint8_t ch : xxx ) {
+    //    decoder.push_pop(ch);
+    //}
 
     ac::DoubleArrayBuilder dab;
 
@@ -51,8 +58,48 @@ int main() {
     text.resize(1024 * 1024);
 
     for (auto& ch : text) {
-        ch = 'a' + (generator() % 26);
+        ch = '%' + (generator() % 80);
     }
+
+    const size_t R = 100, TIMES = 10;
+    for( size_t i = 0; i < TIMES; ++ i ) {
+        {
+            mp::NestUnescape decoder;
+            double start = GetTickCount();
+            size_t ALL = 0;
+            size_t total = text.size() * R;
+            ac::mem_bound_t mb;
+            ac::mem_bound_init(mb,text);
+            for( size_t r = 0; r < R; ++ r ) {
+                ac::mem_bound_t scan = mb;
+                while( ac::mem_bound_size(scan) ) {
+                    ALL += decoder.push_pop(scan);
+                }
+            }
+            double durtion = GetTickCount() - start;
+            printf("decoder(if-else), durtion: %zd ms, decode: %zd, speed; %0.2f MB/s, decoded: %zd\n",
+                (size_t)durtion, total, total / durtion * 1000 / 1024 / 1024, ALL);
+        }
+        {
+            mp::NestUnescape decoder;
+            double start = GetTickCount();
+            size_t ALL = 0;
+            size_t total = text.size() * R;
+            ac::mem_bound_t mb;
+            ac::mem_bound_init(mb, text);
+            for (size_t r = 0; r < R; ++r) {
+                ac::mem_bound_t scan = mb;
+                while (ac::mem_bound_size(scan)) {
+                    ALL += decoder.push_pop_2(scan);
+                }
+            }
+            double durtion = GetTickCount() - start;
+            printf("decoder(switch), durtion: %zd ms, decode: %zd, speed; %0.2f MB/s, decoded: %zd\n",
+                (size_t)durtion, total, total / durtion * 1000 / 1024 / 1024, ALL);
+        }
+    }
+
+    return 0;
 
     text += "/home/joy/.wine/drnive_c/windows/system32/api-ms-win-core-kernel32-private-l1-1-1.dll";
 
@@ -62,7 +109,7 @@ int main() {
     bool same = ac::consistence_check(sa, da, dab.code_table(), text, 1);
     printf("%d\n", same);
 
-    speed_test(sa, dab.code_table(), text, 1024);
-    speed_test(da, dab.code_table(), text, 1024);
-    speed_test(ht, dab.code_table(), text, 1024);
+    speed_test(sa, dab.code_table(), text, 50);
+    speed_test(da, dab.code_table(), text, 50);
+    speed_test(ht, dab.code_table(), text, 50);
 }
