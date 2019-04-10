@@ -68,42 +68,47 @@ int main() {
     };
     file.close();
 
+    //////////////////////////
+
     ac::keywords_t kws;
     kws.reserve(lines.size());
     for (auto& l : lines) {
         kws.push_back(l);
     }
 
+    kws = {"yechao", "hello"};
+
     dab.build(kws, 0);
+    
+    //////////////////////////
 
     ac::SuccinctArray<> sa;
-    ac::DoubleArray32 da;
-    ac::HashTable<> ht;
-
     dab.make(sa);
-    dab.make(da);
-    dab.make(ht);
 
+    //////////////////////////
     std::string text;
-    text.resize(1024 * 1024);
 
-    for (auto& ch : text) {
-        ch = '%' + (generator() % 0x100);
-    }
+    //text.resize(1024 * 1024);
+    //for (auto& ch : text) {
+    //    ch = '%' + (generator() % 0x100);
+    //}
 
+    text += "\\x%37%39\\x65\\x63\\x68\\x61\\x6F";
+
+    //////////////////////////
     mp::normalize_t<64> normalize;
     mp::operator_t<64>  operators;
     mp::alphanum_t<64>  alphanum;
 
-    mp::forward_match_t matcher1(da);
-    mp::forward_match_t matcher2(da);
-    mp::forward_match_t matcher3(da);
+    mp::forward_match_t matcher1(sa);
+    mp::forward_match_t matcher2(sa);
+    mp::forward_match_t matcher3(sa);
 
     mp::forward_chain_t chain1(normalize, matcher1);
     mp::forward_chain_t chain2(operators, matcher2);
     mp::forward_chain_t chain3(alphanum, matcher3);
 
-    for (;;) {
+    {
         mp::speed_test(chain1, text, 100);
         mp::speed_test(chain2, text, 100);
         mp::speed_test(chain3, text, 100);
@@ -119,12 +124,12 @@ int main() {
     size_t c = ac::hit_count(text, std::string("yec"));
     printf("count = %d\n", c);
 
-    bool same = ac::consistence_check(sa, da, text, 1);
+    bool same = ac::consistence_check(sa, sa, text, 1);
     printf("%d\n", same);
 
     for (size_t L = 0; L < 10; ++L) {
         speed_test(sa, text, 50);
-        speed_test(da, text, 50);
+        //speed_test(da, text, 50);
         //speed_test(ht, dab.code_table(), text, 50);
     }
 }

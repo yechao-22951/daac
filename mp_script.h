@@ -134,6 +134,7 @@ namespace mp {
                 forwarder.forward(in);
             }
         }
+        forwarder.finsh();
         double durtion = GetTickCount() - start;
         printf("%s, durtion: %zd ms, forward: %0.2f MB, speed; %0.2f Mb/s\n",
             class_name, (size_t)durtion, total / 1024 / 1024, total / durtion * 1000 / 1024 / 1024 * 8);

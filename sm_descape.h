@@ -578,5 +578,4 @@ namespace mp {
             return 0;
         }
     };
-
-};
+}
