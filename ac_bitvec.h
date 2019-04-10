@@ -1,14 +1,14 @@
 
 #pragma once
 
-#include "ac_match.hxx"
+#include "ac_match.h"
 #include "ac_builder.h"
 #include "rankable_bit_vector.hpp"
 
 namespace ac {
 
     template < typename _StateId = StateId>
-    class SuccinctArray {
+    class SuccinctArray : public WithCodeTable {
     protected:
         struct _state_t {
             _StateId base_;

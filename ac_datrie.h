@@ -1,12 +1,12 @@
 #pragma once
 
-#include "ac_match.hxx"
+#include "ac_match.h"
 #include "ac_builder.h"
 
 namespace ac {
 
     template < typename _StateId = uint32_t>
-    class DoubleArray32 {
+    class DoubleArray32 : public WithCodeTable {
     public:
         using MatchStateId = _StateId;
         using MatchState = MatchStateId;

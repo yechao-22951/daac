@@ -1,11 +1,11 @@
 #pragma once
 #include <string>
 #include <Windows.h>
-#include "ac_match.hxx"
+#include "ac_match.h"
 
 namespace ac {
     template <typename T >
-    void speed_test(const T& searcher, const uint8_t* coder, const std::string& text, size_t loop) {
+    void speed_test(const T& searcher, const std::string& text, size_t loop) {
         const char* class_name = typeid(T).name();
         typename T::MatchStateId state = 0;
         double total = text.size() * loop;
@@ -15,15 +15,15 @@ namespace ac {
         for (size_t k = 0; k < loop; ++k) {
             ac::mem_bound_init(in, text);
             while (ac::mem_bound_size(in)) {
-                matched += ac::match(searcher, coder, state, in, false) ? 1 : 0;
+                matched += ac::match(searcher, state, in, false) ? 1 : 0;
             }
         }
         double durtion = GetTickCount() - start;
-        printf("%s, machine-space: %zd KB, durtion: %zd ms, scan: %0.2f MB, speed; %0.2f MB/s, matched: %zd\n",
-            class_name, searcher.room()/1024, (size_t)durtion, total/1024/1024, total / durtion * 1000 / 1024 / 1024, matched);
+        printf("%s, machine-space: %zd KB, durtion: %zd ms, scan: %0.2f MB, speed; %0.2f Mb/s, matched: %zd\n",
+            class_name, searcher.room()/1024, (size_t)durtion, total/1024/1024, total / durtion * 1000 / 1024 / 1024 * 8, matched);
     }
     template <typename T, typename K >
-    bool consistence_check(const T& searcher1, const K& searcher2, const uint8_t* coder, const std::string& text, size_t loop) {
+    bool consistence_check(const T& searcher1, const K& searcher2, const std::string& text, size_t loop) {
         typename T::MatchStateId state1 = 0;
         typename K::MatchStateId state2 = 0;
         size_t in_size = text.size();
@@ -35,8 +35,8 @@ namespace ac {
                 typename K::MatchStateId state2_ = state2;
                 bool verbose = false;
                 for(;;) {
-                    matched1 += ac::feed(searcher1, coder, state1, uch, verbose) ? 1 : 0;
-                    matched2 += ac::feed(searcher2, coder, state2, uch, verbose) ? 1 : 0;
+                    matched1 += ac::feed(searcher1, state1, uch, verbose) ? 1 : 0;
+                    matched2 += ac::feed(searcher2, state2, uch, verbose) ? 1 : 0;
                     if( matched1 != matched2 || state1 != state2 ) {
                         state1 = state1_;
                         state2 = state2_;

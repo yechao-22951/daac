@@ -56,11 +56,11 @@ namespace ac {
         const uint8_t* __code_table() {
             return coder_.table();
         }
-        bool __try_get_next_state(size_t & state, uint8_t code) {
+        bool __try_get_next_state(size_t& state, uint8_t code) {
             size_t next = states_[state].base + code;
             State* next_node = __state_node(next);
             if (!next_node) return false;    // back to root
-            if(next_node->check != state)
+            if (next_node->check != state)
                 return false;   // back to root
             state = next;
             return true;
@@ -111,9 +111,9 @@ namespace ac {
                 StateId new_state = this_lev->state[i] = new_state_;
 
                 State * new_state_node = __state_node(new_state);
-                if (new_state_node && new_state_node->check != FROM_INVALID) 
+                if (new_state_node && new_state_node->check != FROM_INVALID)
                     continue;
-                
+
                 //putchar(b8);
 
                 new_state_node = __state_node(new_state, true);
@@ -190,6 +190,7 @@ namespace ac {
 
         template < typename T>
         bool make(T & searcher) {
+            searcher.set_code_table(code_table());
             bool f = searcher.resize(states_.size(), valid_states_, match_set_.size());
             if (!f) return false;
             for (StateId i = 0; i < states_.size(); ++i) {
@@ -209,9 +210,5 @@ namespace ac {
             }
             return searcher.done();
         }
-
-
     };
-
-
 };

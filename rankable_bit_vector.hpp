@@ -73,7 +73,7 @@ namespace succinct {
 
         class BitVector {
         public:
-            BitVector() : size_(0){}
+            BitVector() : size_(0) {}
             ~BitVector() throw() {}
 
             void init(uint64_t len) {
@@ -120,6 +120,7 @@ namespace succinct {
                 }
             }
 
+            // 不是标准的rank1, 是 [0,pos) 之间有几个1,而不是 [0,pos]
             __forceinline size_t rank(size_t pos) const {
                 __assert(pos <= size_);
                 if (!pos) return 0;
@@ -127,7 +128,7 @@ namespace succinct {
                 uint32_t rank = rank_[bi];
                 const uint64_t b1 = B_[bi];
                 const size_t r = pos & (BSIZE - 1);
-                const uint64_t mask = (uint64_t(1) << r) - 1;//(uint64_t(-11) >> (BSIZE - (pos & (BSIZE-1))));
+                const uint64_t mask = (uint64_t(1) << r) - 1;
                 rank += popcount64(b1 & mask);
                 return rank;
             }

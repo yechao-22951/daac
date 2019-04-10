@@ -2,13 +2,13 @@
 #include <stdint.h>
 #include <unordered_map>
 #include "ac_comm.h"
-#include "ac_match.hxx"
+#include "ac_match.h"
 #include "ac_builder.h"
 
 namespace ac
 {
     template < typename _StateId = StateId>
-    class HashTable {
+    class HashTable : public WithCodeTable {
     protected:
         struct _state_t {
             _StateId base_;

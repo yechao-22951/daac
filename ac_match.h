@@ -10,6 +10,18 @@ namespace ac {
         SM_REACH_ROOT,
     } MoveRet;
 
+    class WithCodeTable {
+    protected:
+        uint8_t code_table_[0x100];
+    public:
+        void set_code_table(const uint8_t* table) {
+            memcpy(code_table_, table, sizeof(code_table_));
+        }
+        uint8_t translate( uint8_t ch ) const {
+            return code_table_[ch];
+        }
+    };
+
     template < typename MatchStateId, typename MatchState>
     struct Machine {
         MatchState      get_state(MatchStateId) const;
@@ -23,7 +35,6 @@ namespace ac {
         typename MatchState = typename Machine::MatchState >
 
         static bool match(const Machine & machine,
-            const uint8_t * code_table,
             MatchStateId & state,
             mem_bound_t & buffer,
             bool verbose)
@@ -33,7 +44,7 @@ namespace ac {
         MatchState p = machine.get_state(state);
         for (; data < tail; ++data) {
             uint8_t b8 = *data;
-            uint8_t ch = code_table[b8];
+            uint8_t ch = machine.translate(b8);
             for (;;) {
                 MoveRet ms = machine.move_state(p, ch);
                 if (ms == SM_ACCEPTED)
@@ -63,13 +74,12 @@ namespace ac {
         typename MatchState = typename Machine::MatchState >
 
         static bool feed(const Machine & machine,
-            const uint8_t * code_table,
             MatchStateId & state,
             uint8_t uch8,
             bool verbose)
     {
         MatchState p = machine.get_state(state);
-        uint8_t ch = code_table[uch8];
+        uint8_t ch = machine.translate(uch8);
         if (verbose) printf("\n");
         for (;;) {
             if (verbose) printf("%d ", machine.id_of(p));
@@ -92,5 +102,6 @@ namespace ac {
         state = machine.id_of(p);
         return false;
     }
+
 
 };

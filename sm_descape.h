@@ -54,6 +54,7 @@ namespace mp {
         };
     };
 
+    template< int MAX_BYTE_QUEUE_SIZE = 64, int MAX_NEST_DEPTH = 16>
     class NestUnescape {
     public:
         enum state_t {
@@ -80,17 +81,21 @@ namespace mp {
             unescape_u_4
         };
     public:
-        enum { MAX_NEST = 16, MAX_CBS = 64 };
-        uint32_t            states_[MAX_NEST];
-        uint32_t            nested_ = 0;
-        uint8_t             utcc_[MAX_CBS];
-        uint32_t            utcs_ = 0;
+        enum {
+            MAX_SSD = MAX_NEST_DEPTH,
+            MAX_BQS = MAX_BYTE_QUEUE_SIZE
+        };
+    protected:
+        uint8_t     states_[MAX_SSD];
+        uint8_t     utcc_[MAX_BQS];
+        uint16_t    nested_ = 0;
+        uint16_t    utcs_ = 0;
 #ifdef _DEBUG
-#define CHECK_CHAR_STACK()  if( (int32_t)utcs_ < 0 ) DebugBreak();
+#define CHECK_STACK(x)  if( (int32_t)x < 0 ) DebugBreak();
 #else
-#define CHECK_CHAR_STACK()  
+#define CHECK_STACK(x)  
 #endif
-    public:
+    protected:
         static uint8_t o2d(uint8_t o) {
             return o - '0';
         }
@@ -106,7 +111,7 @@ namespace mp {
                 (h2d(utcc_[utcs_ - 2]) << 4) +
                 (h2d(utcc_[utcs_ - 1]));
             utcs_ -= 4 + prefix_size;
-            CHECK_CHAR_STACK();
+            CHECK_STACK(utcs_);
             return r;
         }
         uint8_t pop_hex_2(size_t prefix_size) {
@@ -114,8 +119,7 @@ namespace mp {
                 (h2d(utcc_[utcs_ - 2]) << 4) +
                 (h2d(utcc_[utcs_ - 1]));
             utcs_ -= 2 + prefix_size;
-            CHECK_CHAR_STACK();
-
+            CHECK_STACK(utcs_);
             return r;
         }
         uint8_t pop_oct_3(size_t prefix_size) {
@@ -124,7 +128,7 @@ namespace mp {
                 (o2d(utcc_[utcs_ - 2]) << 3) +
                 (o2d(utcc_[utcs_ - 1]));
             utcs_ -= 3 + prefix_size;
-            CHECK_CHAR_STACK();
+            CHECK_STACK(utcs_);
             return r;
         }
 
@@ -132,10 +136,6 @@ namespace mp {
         struct byte_queue_64_t {
             uint64_t queue_ = 0;
             size_t size_ = 0;
-            //byte_queue_64_t(uint8_t b) {
-            //    queue_ = b;
-            //    size_ = 1;
-            //}
             bool enqueue(uint16_t u16) {
                 if (size_ + 2 >= sizeof(uint64_t))
                     return false;
@@ -169,26 +169,133 @@ namespace mp {
 
         void pop_state() {
             --nested_;
+            CHECK_STACK(nested_);
         }
 
         void pop_last_char() {
             --utcs_;
-            CHECK_CHAR_STACK();
+            CHECK_STACK(utcs_);
+
         }
 
-        void push_char(const uint8_t ch) {
+        bool push_char(const uint8_t ch) {
+            if (utcs_ >= MAX_BQS) return false;
             utcc_[utcs_++] = ch;
+            return true;
         }
 
         void replace_state(size_t state) {
             states_[nested_ - 1] = state;
         }
-        void enter_state(size_t state, bool replace = false) {
-            if (replace) states_[nested_] = state;
-            else states_[nested_++] = state;
+
+        bool enter_state(size_t state) {
+            if (nested_ >= MAX_SSD)
+                return false;
+            states_[nested_++] = state;
+            return true;
         }
 
-        inline void hanle_one_byte(const uint8_t ch, byte_queue_64_t & queue) {
+        __forceinline void handle_one_byte(const uint8_t ch, byte_queue_64_t & queue) {
+            const uint8_t tr = CharTrait::Table[ch];
+            if (!tr) {
+                nested_ = 0;
+                return;
+            }
+            push_char(ch);
+            for (;;) {
+                // 在任何状态，遇到escape/unescape,都可能存在转义
+                if (tr & CharTrait::Escape) {
+                    enter_state(ch);
+                    return;
+                }
+                if (!nested_) {
+                    return;
+                }
+                size_t state = states_[nested_ - 1];
+                switch (state) {
+                case escape_:
+                    if (ch == 'x') {
+                        replace_state(escape_x);
+                        return;
+                    }
+                    else if (ch == 'u') {
+                        replace_state(escape_u);
+                        return;
+                    }
+                    else if (ch == '\\') {
+                        pop_last_char();        // pop '\'
+                        return;
+                    }
+                    else if (tr & CharTrait::OctChar) {
+                        replace_state(escape_o_1);
+                        return;
+                    }
+                    break;
+                case unescape_:
+                    if (tr & CharTrait::HexChar) {
+                        replace_state(unescape_x_1);
+                        return;
+                    }
+                    else if (ch == 'u') {
+                        replace_state(unescape_u);
+                        return;
+                    }
+                    break;
+                case escape_o_1:
+                    if (tr & CharTrait::OctChar) {
+                        replace_state(state + 1);
+                        return;
+                    }
+                    break;
+                case escape_o_2:
+                    if (tr & CharTrait::OctChar) {
+                        // \ ..
+                        uint8_t nc = pop_oct_3(1);
+                        queue.enqueue(nc);
+                        pop_state();
+                        return;
+                    }
+                    break;
+                case escape_x:
+                case escape_u: case escape_u_1: case escape_u_2:
+                case unescape_u: case unescape_u_1: case unescape_u_2:
+                    if (tr & CharTrait::HexChar) {
+                        replace_state(state + 1);
+                        return;
+                    }
+                    break;
+                case escape_x_1:
+                    if (tr & CharTrait::HexChar) {
+                        // \xXX
+                        uint8_t nc = pop_hex_2(2);
+                        queue.enqueue(nc);
+                        pop_state();
+                        return;
+                    }
+                case unescape_x_1:
+                    if (tr & CharTrait::HexChar) {
+                        // %XX
+                        uint8_t nc = pop_hex_2(1);
+                        queue.enqueue(nc);
+                        pop_state();
+                        return;
+                    }
+                    break;
+                case escape_u_3: case unescape_u_3:
+                    if (tr & CharTrait::HexChar) {
+                        // \u %u
+                        uint16_t nc2 = pop_hex_4(2);
+                        queue.enqueue(nc2);
+                        pop_state();
+                        return;
+                    }
+                    break;
+                }
+                pop_state();
+            }
+        }
+
+        inline void hanle_one_byte_(const uint8_t ch, byte_queue_64_t & queue) {
             const uint8_t tr = CharTrait::Table[ch];
             if (!tr) {
                 nested_ = 0;
@@ -294,14 +401,23 @@ namespace mp {
                 pop_state();
             }
         }
-
-        inline size_t push_pop(uint8_t b8) {
+    public:
+        inline const uint8_t* data() {
+            return utcc_;
+        }
+        inline size_t finsh() {
+            size_t c = utcs_;
+            utcs_ = 0;
+            nested_ = 0;
+            return c;
+        }
+        inline size_t forward(uint8_t b8) {
             byte_queue_64_t queue;
             do {
-                hanle_one_byte(b8, queue);
+                handle_one_byte(b8, queue);
             } while (queue.dequeue(b8));
             if (!nested_) {
-                if (utcs_ >= MAX_CBS / 2) {
+                if (utcs_ >= MAX_BQS / 2) {
                     size_t c = utcs_;
                     utcs_ = 0;
                     return c;
@@ -309,27 +425,37 @@ namespace mp {
             }
             return 0;
         }
+        inline size_t forward(ac::mem_bound_t & mb) {
+            byte_queue_64_t queue;
+            const uint8_t* scan = mb.data;
+            for (; scan < mb.tail; ++scan) {
 
-        inline size_t push_pop(ac::mem_bound_t & mb) {
-            for (; mb.data < mb.tail; ++mb.data) {
-                uint8_t ch = *mb.data;
-                byte_queue_64_t queue;
+                uint8_t ch = *scan;
                 do {
-                    hanle_one_byte(ch, queue);
+                    handle_one_byte(ch, queue);
                 } while (queue.dequeue(ch));
+
+                if (nested_ >= MAX_SSD || utcs_ >= MAX_BQS)
+                {
+                    size_t c = utcs_;
+                    utcs_ = 0;
+                    nested_ = 0;
+                    mb.data = scan + 1;
+                    return c;
+                }
                 if (!nested_) {
-                    if (utcs_ >= MAX_CBS / 2) {
+                    if (utcs_ >= MAX_BQS / 2) {
                         size_t c = utcs_;
                         utcs_ = 0;
+                        mb.data = scan + 1;
                         return c;
                     }
                 }
             }
+            mb.data = scan;
             return 0;
-
         }
-
-        inline size_t push_pop_2(ac::mem_bound_t & mb) {
+        inline size_t forward2(ac::mem_bound_t & mb) {
             byte_queue_64_t queue;
             for (; mb.data < mb.tail; ++mb.data) {
                 uint8_t ch = *mb.data;
@@ -341,7 +467,6 @@ namespace mp {
                         continue;
                     }
                     push_char(ch);
-
                     // TR !=== 0
                     for (;;) {
                         // for same char
@@ -416,9 +541,16 @@ namespace mp {
                                 continue;
                             }
                             break;
-                        case escape_x_1: case unescape_x_1:
+                        case escape_x_1:
                             if (tr & CharTrait::HexChar) {
                                 uint8_t nc = pop_hex_2(2);
+                                queue.enqueue(nc);
+                            }
+                            pop_state();
+                            break;
+                        case unescape_x_1:
+                            if (tr & CharTrait::HexChar) {
+                                uint8_t nc = pop_hex_2(1);
                                 queue.enqueue(nc);
                             }
                             pop_state();
@@ -436,7 +568,7 @@ namespace mp {
                 } while (queue.dequeue(ch));
 
                 if (!nested_) {
-                    if (utcs_ >= MAX_CBS / 2) {
+                    if (utcs_ >= MAX_BQS / 2) {
                         size_t c = utcs_;
                         utcs_ = 0;
                         return c;

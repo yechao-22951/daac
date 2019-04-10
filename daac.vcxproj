@@ -194,11 +194,11 @@
     <ClInclude Include="ac_comm.h" />
     <ClInclude Include="ac_datrie.h" />
     <ClInclude Include="ac_keywords.h" />
-    <ClInclude Include="ac_match.hxx" />
-    <ClInclude Include="ac_match_list.h" />
+    <ClInclude Include="ac_match.h" />
     <ClInclude Include="ac_uomap.h" />
     <ClInclude Include="ac_utils.h" />
     <ClInclude Include="matcher.h" />
+    <ClInclude Include="mp_script.h" />
     <ClInclude Include="mp_sm_mini_ac.h" />
     <ClInclude Include="mp_sm_mini_ac_builder.h" />
     <ClInclude Include="nest_decoder.h" />
